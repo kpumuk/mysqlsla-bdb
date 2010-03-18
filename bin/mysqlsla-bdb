@@ -198,6 +198,9 @@ sub parse_binary_logs
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
    my $s_h;          # ref to samples hash
+   my $a_h;          # ref to abstracts hash
+   my $ra_h;         # ref to reverse abstracts hash
+   my $a_idx = 1;    # current query abstract index
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)--filtered by check_stmt()
    my $valid_stmt;   # if stmt is valid (passes all filters)
@@ -215,6 +218,8 @@ sub parse_binary_logs
    $logs = $params{logs};
    $q_h  = $params{queries};
    $s_h  = $params{samples};
+   $a_h  = $params{abstracts};
+   $ra_h = $params{rabstracts};
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
    _d("parse_binary_logs: q_a $q_a\n") if $debug;
@@ -270,8 +275,12 @@ sub parse_binary_logs
 
             $q = abstract_stmt($stmt);
 
-            if(!exists ${$q_h}{$q})  # if first occurrence of $q (abstracted $stmt)
+            if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
             {
+               $$a_h{$q} = $a_idx;
+               $$ra_h{$a_idx} = $q;
+               $q = $a_idx++;
+
                ${$q_h}{$q} = { id => $statement_id++, db => $use_db };
                ${$s_h}{$q} = $stmt;
 
@@ -283,6 +292,10 @@ sub parse_binary_logs
                   ${$q_h}{$q}->{ext_min} = $ext;
                   ${$q_h}{$q}->{ext_max} = $ext;
                }
+            }
+            else
+            {
+               $q = $$a_h{$q};
             }
 
             $x = ${$q_h}{$q};
@@ -323,6 +336,9 @@ sub parse_general_logs
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
    my $s_h;          # ref to samples hash
+   my $a_h;          # ref to abstracts hash
+   my $ra_h;         # ref to reverse abstracts hash
+   my $a_idx = 1;    # current query abstract index
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)
@@ -343,6 +359,8 @@ sub parse_general_logs
    $logs = $params{logs};
    $q_h  = $params{queries};
    $s_h  = $params{samples};
+   $a_h  = $params{abstracts};
+   $ra_h = $params{rabstracts};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
@@ -557,13 +575,21 @@ sub parse_general_logs
 
                      $q = abstract_stmt($stmt);
 
-                     if(!exists ${$q_h}{$q})  # if first occurrence of $q (abstracted $stmt)
+                     if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
                      {
+                        $$a_h{$q} = $a_idx;
+                        $$ra_h{$a_idx} = $q;
+                        $q = $a_idx++;
+
                         ${$q_h}{$q} = {id     => $statement_id++,
                                        db     => $use_db{$cid},
                                        cid    => $cid
                                       };
                         ${$s_h}{$q} = $stmt;
+                     }
+                     else
+                     {
+                        $q = $$a_h{$q};
                      }
 
                      $x = ${$q_h}{$q};
@@ -609,6 +635,9 @@ sub parse_slow_logs
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
    my $s_h;          # ref to samples hash
+   my $a_h;          # ref to abstracts hash
+   my $ra_h;         # ref to reverse abstracts hash
+   my $a_idx = 1;    # current query abstract index
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $msl;          # 0 = baisc slow log; 1 = microslow patched slow log
@@ -637,6 +666,8 @@ sub parse_slow_logs
    $logs = $params{logs};
    $q_h  = $params{queries};
    $s_h  = $params{samples};
+   $a_h  = $params{abstracts};
+   $ra_h = $params{rabstracts};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
    # $msl  = (exists $params{microslow}   ? $params{microslow}   : 0);
@@ -782,8 +813,12 @@ sub parse_slow_logs
 
             $q = abstract_stmt($stmt);
 
-            if(!exists $$q_h{$q})  # if first occurrence of $q (abstracted $stmt)
+            if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
             {
+               $$a_h{$q} = $a_idx;
+               $$ra_h{$a_idx} = $q;
+               $q = $a_idx++;
+
                $$q_h{$q} = { id => $statement_id++, db => $use_db };
                $$s_h{$q} = $stmt;
 
@@ -837,6 +872,10 @@ sub parse_slow_logs
                      }
                   } # if($msl)
                } # if($save_meta_values)
+            }
+            else
+            {
+               $q = $$a_h{$q};
             } # if(!exists $$q_h{$q})
 
             $x = $$q_h{$q};
@@ -947,6 +986,9 @@ sub parse_udl_logs
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
    my $s_h;          # ref to samples hash
+   my $a_h;          # ref to abstracts hash
+   my $ra_h;         # ref to reverse abstracts hash
+   my $a_idx = 1;    # current query abstract index
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)--filtered by check_stmt()
@@ -968,6 +1010,8 @@ sub parse_udl_logs
    $logs = $params{logs};
    $q_h  = $params{queries};
    $s_h  = $params{samples};
+   $a_h  = $params{abstracts};
+   $ra_h = $params{rabstracts};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
@@ -1052,8 +1096,12 @@ sub parse_udl_logs
 
             $q = abstract_stmt($stmt);
 
-            if(!exists $$q_h{$q})  # if first occurrence of $q (abstracted $stmt)
+            if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
             {
+               $$a_h{$q} = $a_idx;
+               $$ra_h{$a_idx} = $q;
+               $q = $a_idx++;
+
                $$q_h{$q} = { id => $statement_id++, db => $use_db };
                $$s_h{$q} = $stmt;
 
@@ -1076,6 +1124,10 @@ sub parse_udl_logs
                      }
                   }
                } # if($save_meta_values)
+            }
+            else
+            {
+               $q = $$a_h{$q};
             } # if(!exists $q_h{$q})
 
             $x = $$q_h{$q};
@@ -2115,7 +2167,7 @@ my $WIN = ($^O eq 'MSWin32' ? 1 : 0);
 my %op;
 my %mycnf; # ~/.my.cnf
 my ($dbh, $query, $MySQL_connected);
-my ($q_h, $s_h, %queries, %u_h, $q_a, @all_queries, %g_t, %samples);
+my ($q_h, %queries, $s_h, %samples, $a_h, %abstracts, $ra_h, %rabstracts, %u_h, $q_a, @all_queries, %g_t);
 my $total_queries;
 my $total_unique_queries;
 my $total_unique_users;
@@ -2206,14 +2258,22 @@ else            { $q_h = \%queries;             }
 
 use BerkeleyDB;
 unlink("samples.tmp");
+unlink("abstracts.tmp");
+unlink("rabstracts.tmp");
 
-tie(%samples, "BerkeleyDB::Hash", -Filename => "samples.tmp", -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
-$s_h = \%samples;
+tie(%samples,    "BerkeleyDB::Hash", -Filename => "samples.tmp",    -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
+tie(%abstracts,  "BerkeleyDB::Hash", -Filename => "abstracts.tmp",  -Flags => DB_CREATE) or die "Cannot open file abstracts.tmp: $!\n";
+tie(%rabstracts, "BerkeleyDB::Hash", -Filename => "rabstracts.tmp", -Flags => DB_CREATE) or die "Cannot open file rabstracts.tmp: $!\n";
+$s_h  = \%samples;
+$a_h  = \%abstracts;
+$ra_h = \%rabstracts;
 
 # Used in parse_logs() and passed to various ParseFilter subs
 %params = (logs        => \@ARGV,
            queries     => $q_h,
            samples     => $s_h,
+           abstracts   => $a_h,
+           rabstracts  => $ra_h,
            users       => \%u_h,
            all_queries => $q_a,
            microslow   => ($op{lt} eq 'msl' ? 1 : 0));
@@ -2260,7 +2320,11 @@ save_replay($op{'post-sort-replay'}) if $op{'post-sort-replay'};
 make_reports() unless $op{silent};
 
 untie %samples;
+untie %abstracts;
+untie %rabstracts;
 unlink("samples.tmp");
+unlink("abstracts.tmp");
+unlink("rabstracts.tmp");
 
 exit;
 
@@ -3019,7 +3083,7 @@ sub standard_report
    my $x;
    my $sample;
 
-   $q = '';
+   $q = -1;
 
    for($i = 0; $i < scalar @$headers; $i++)
    {
@@ -3037,7 +3101,7 @@ sub standard_report
       $values[$#values] =~ s/[\s\n]{1,}$//;  # remove trailing spaces and newlines from final value
       printf($$headers[$i], @values);
    }
-
+   
    foreach $q (sort { $$q_h{$a}->{sort_rank} <=> $$q_h{$b}->{sort_rank} } keys(%$q_h))
    {
       $x = $$q_h{$q};
@@ -3137,7 +3201,7 @@ sub resolve_coded_value
    # statement's number in the sort order. Finally, a value name might refer
    # to a grand total value in %g_t.
 
-   if($$q && exists $$q_h{$$q}->{$value})
+   if($$q > 0 && exists $$q_h{$$q}->{$value})
    {
       $ref = ref($$q_h{$$q}->{$value});
 
@@ -3147,7 +3211,7 @@ sub resolve_coded_value
       }
    }
 
-   $value = $$q, goto FORMAT_VALUE if $value eq 'query';
+   $value = $$ra_h{$$q}, goto FORMAT_VALUE if $value eq 'query';
    $value = $$s_h{$$q}, goto FORMAT_VALUE if $value eq 'sample';
    $value = $g_t{$value}, goto FORMAT_VALUE if exists $g_t{$value};
    $value = $total_queries, goto FORMAT_VALUE if $value eq 'total_queries';
