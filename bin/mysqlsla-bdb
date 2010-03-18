@@ -2205,11 +2205,9 @@ if($op{replay}) { $q_h = retrieve($op{replay}); }
 else            { $q_h = \%queries;             }
 
 use BerkeleyDB;
-use MLDBM qw(BerkeleyDB::Btree Storable);
-$MLDBM::UseDB = "BerkeleyDB::Btree";
 unlink("samples.tmp");
 
-tie(%samples, "MLDBM", -Filename => "samples.tmp", -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
+tie(%samples, "BerkeleyDB::Hash", -Filename => "samples.tmp", -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
 $s_h = \%samples;
 
 # Used in parse_logs() and passed to various ParseFilter subs
