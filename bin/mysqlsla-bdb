@@ -47,7 +47,7 @@ sub get_statement_filter { return \%sf; }
 
 #
 # Subs to set module options exported as :options
-# 
+#
 sub set_save_meta_values    { $save_meta_values = shift;  }
 sub set_save_all_values     { $save_all_values  = shift;  }
 sub set_IN_abstraction      { $abstract_in = shift;       }
@@ -93,7 +93,7 @@ sub set_meta_filter
 sub set_statement_filter
 {
    # SQL statement filter format: [+-][TYPE],[TYPE],etc.
-   # [+-]   =  positive filter: only SQL statements which *are* TYPE 
+   # [+-]   =  positive filter: only SQL statements which *are* TYPE
    #           or negative filter: only: SQL statements which are *not* TYPE
    # [TYPE] =  any SQL statement type (SELECT, UPDATE, DO, etc.)
    # No space between [+-] and first [TYPE]; defeault is negative filter
@@ -153,11 +153,11 @@ sub set_udl_format
       {
          _d("set_udl_format: metas: $line\n") if $debug;
          @metas = split ' ', $line;
-         
+
          foreach $x (@metas)
          {
             ($meta_name, $meta_type) = ($x =~ /(\w+):(\w{1,2})/);
-            
+
             if($meta_type eq 's' || $meta_type eq 'n')
             {
                # how to save meta in %q_h after log processing in parse_udl_logs()
@@ -197,6 +197,7 @@ sub parse_binary_logs
 
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
+   my $s_h;          # ref to samples hash
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)--filtered by check_stmt()
    my $valid_stmt;   # if stmt is valid (passes all filters)
@@ -213,6 +214,7 @@ sub parse_binary_logs
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs = $params{logs};
    $q_h  = $params{queries};
+   $s_h  = $params{samples};
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
    _d("parse_binary_logs: q_a $q_a\n") if $debug;
@@ -236,7 +238,7 @@ sub parse_binary_logs
          chomp $stmt;
          $stmt =~ s/^.*\n//;              # remove first line which will be the log pos after '# at'
          next if $stmt !~ /\s+Query\s+/;  # skip the plethora of non-query related info
-   
+
          _d("parse_binary_logs: READ: $stmt\n") if $debug;
 
          $use_db = '' unless $db_inheritance;  # $use_db can still be overwritten later by an
@@ -246,16 +248,16 @@ sub parse_binary_logs
          # SQL statements are preceded with a header line like:
          # #YYMMDD HH:MM:SS server id N end_log_pos N Query thread_id=N exec_time=N error_code=0
          # Everything after should be SQL statements.
-   
+
          $stmt =~
          s/^.*?server id (\d+)\s+end_log_pos \d+\s+Query\s+thread_id=(\d+)\s+exec_time=([\d\.]+)\s+error_code=(\d+)\n//;
          ($sid, $cid, $ext, $err) = ($1, $2, $3, $4);
-   
+
          next if (exists $mf{sid} && !passes_meta_filter('sid', $sid, 'n'));
          next if (exists $mf{cid} && !passes_meta_filter('cid', $cid, 'n'));
          next if (exists $mf{ext} && !passes_meta_filter('ext', $ext, 'n'));
          next if (exists $mf{err} && !passes_meta_filter('err', $err, 'n'));
-   
+
          $stmt =~ s/^\/\*!(?!\*).*(?:\n|\z)//mg; # remove special SQL comments like /*!\C utf8 *//*!*/;
          $stmt =~ s/^#.*(?:\n|\z)//mg;           # remove regular log comments
 
@@ -265,12 +267,13 @@ sub parse_binary_logs
          {
             push @{$q_a}, "USE $use_db" if ($q_a && $use_db);
             push @{$q_a}, $stmt if $q_a;
-   
+
             $q = abstract_stmt($stmt);
 
             if(!exists ${$q_h}{$q})  # if first occurrence of $q (abstracted $stmt)
             {
-               ${$q_h}{$q} = { id => $statement_id++, sample => $stmt, db => $use_db };
+               ${$q_h}{$q} = { id => $statement_id++, db => $use_db };
+               ${$s_h}{$q} = $stmt;
 
                if($save_meta_values)
                {
@@ -283,7 +286,7 @@ sub parse_binary_logs
             }
 
             $x = ${$q_h}{$q};
-   
+
             $x->{c_sum} += 1;
 
             # this handles cases where the db for a query is discovered after
@@ -319,6 +322,7 @@ sub parse_general_logs
 
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
+   my $s_h;          # ref to samples hash
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)
@@ -338,6 +342,7 @@ sub parse_general_logs
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs = $params{logs};
    $q_h  = $params{queries};
+   $s_h  = $params{samples};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
@@ -349,7 +354,7 @@ sub parse_general_logs
    $valid_stmt = 0;
    $match      = '';
    $cmd        = '';
-   $cid        = 0; 
+   $cid        = 0;
    $use_db{0}  = '';
    $users{0}   = '';
    $hosts{0}   = '';
@@ -367,40 +372,40 @@ sub parse_general_logs
       while($line = <LOG>)
       {
          next if $line =~ /^\s*$/o;  # skip blank lines
-   
+
          if(!$have_stmt)
          {
             # Fast-forward to a recognizable command
             next unless $line =~ /^[\s\d:]+(?:Query|Execute|Connect|Init|Change)/o;
-   
+
             # The general log has two line formats like:
             #                       1 Prepare     [3]
             # 060904  9:39:11       1 Query       SET autocommit=0
             # Each if(m//) below matches one or the other line format.
-   
+
             # without date and time
             if($line =~ /^\s+(\d+) (Query|Execute|Connect|Init|Change)/o) {}
             # with date and time
             elsif($line =~ /^\d{6}\s+[\d:]+\s+(\d+) (Query|Execute|Connect|Init|Change)/o) {}
-            else 
+            else
             {
                # This shouldn't happen often. There are known cases, like 'Field List'.
                _d("parse_general_logs: FALSE-POSITIVE match: $line") if $debug;
                next;
             }
-   
+
             $cid = $1;
             $cmd = $2;
-   
+
             next if (exists $mf{cid} && !passes_meta_filter('cid', $cid, 'n'));
-   
+
             # Init a key-val for the cid in the hashes if not already done so
             $users{$cid}  = '' if !exists $users{$cid};
             $hosts{$cid}  = '' if !exists $hosts{$cid};
             $use_db{$cid} = '' if !exists $use_db{$cid};
-   
+
             _d("parse_general_logs: cid $cid, cmd $cmd\n") if $debug;
-   
+
             if($cmd eq "Connect")
             {
                # The Connect command sometimes is and sometimes is not followed by 'on'.
@@ -414,7 +419,7 @@ sub parse_general_logs
                   _d("parse_general_logs: FALSE-POSITIVE connect match: $line") if $debug;
                   next;
                }
-   
+
                if($1 ne "")
                {
                   if($1 =~ /^Access/o)  # Ignore "Access denied for user ..."
@@ -422,66 +427,66 @@ sub parse_general_logs
                      _d("parse_general_logs: ignoring: $line") if $debug;
                      next;
                   }
-   
+
                   my @x = split '@', $1;
-   
+
                   $users{$cid} = $x[0];
                   $hosts{$cid} = $x[1];
                }
-               
+
                if($2 && $2 ne "")
                {
                   $use_db{$cid} = $2;
-   
+
                   if($q_a && exists $mf{db} && passes_meta_filter('db', $2, 's'))
                   {
                      push @{$q_a}, "USE $use_db{$cid};";
                   }
                }
-   
+
                _d("parse_general_logs: connect $users{$cid}\@$hosts{$cid}, db $use_db{$cid}\n") if $debug;
-   
+
                next;
             }
             elsif($cmd eq "Init")
             {
                $line =~ /Init DB\s+(\w+)/o;
                $use_db{$cid} = $1;
-   
+
                if($q_a && exists $mf{db} && passes_meta_filter('db', $1, 's'))
                {
                   push @{$q_a}, "USE $use_db{$cid};";
                }
-   
+
                _d("parse_general_logs: cid $cid, Init DB $use_db{$cid}\n") if $debug;
-   
+
                next;
             }
             elsif($cmd eq "Change")
             {
                $line =~ /Change user\s+(.+) on (\w*)/o;
-   
+
                my $old_cid_info = "$users{$cid}\@$hosts{$cid} db $use_db{$cid}";
-   
+
                if($1 ne "")
                {
                   my @x = split '@', $1;
                   $users{$cid} = $x[0];
                   $hosts{$cid} = $x[1];
                }
-   
+
                if($2 ne "")
                {
                   $use_db{$cid} = $2;
-   
+
                   if($q_a && exists $mf{db} && passes_meta_filter('db', $2, 's'))
                   {
                      push @{$q_a}, "USE $use_db{$cid};";
                   }
                }
-   
+
                _d("parse_general_logs: cid $cid, CHANGE old:$old_cid_info > new:$users{$cid}\@$hosts{$cid} db $use_db{$cid}\n") if $debug;
-   
+
                next;
             }
             elsif($cmd eq "Query")
@@ -500,7 +505,7 @@ sub parse_general_logs
                _d("parse_general_logs: FALSE-POSTIVE command match: $cmd\n") if $debug;
                next;
             }
-   
+
             # At this point, Command was either Query or Execute (directly above).
             # Therefore, we are now dealing with a new SQL statement.
             _d("parse_general_logs: cid $cid, db $use_db{$cid}, START new stmt: $match\n") if $debug;
@@ -520,24 +525,24 @@ sub parse_general_logs
             next if (exists $mf{user} && !passes_meta_filter('user', $users{$cid},  's'));
             next if (exists $mf{host} && !passes_meta_filter('host', $hosts{$cid},  's'));
             next if (exists $mf{db}   && !passes_meta_filter('db',   $use_db{$cid}, 's'));
-   
+
             # All meta and statement filters passed so begin saving the SQL statement
             $valid_stmt = 1;
             $stmt = $match . "\n";
-   
+
             # At this point, we return to while($line = <LOG>) to begin reading the subsequent lines
             # of the new SQL statement. If it's not valid, then the lines will be ignored
             # until the next recognizable command.
-   
+
          } # if(!$have_stmt)
          else # have_stmt
          {
             if($line =~ /^[\s\d:]+\d [A-Z]/o)  # New command so the SQL statement we've been reading until now is done
             {
                _d("parse_general_logs: NEW command (end of previous stmt)\n") if $debug;
-   
+
                $have_stmt = 0;
-   
+
                if($valid_stmt)
                {
                   if($grep && ($stmt !~ /$grep/io))
@@ -545,20 +550,20 @@ sub parse_general_logs
                      $valid_stmt = 0;
                      _d("parse_general_logs: previous stmt FAILS grep") if $debug;
                   }
-   
+
                   if($valid_stmt)
                   {
                      push @$q_a, $stmt if $q_a;
-   
+
                      $q = abstract_stmt($stmt);
 
                      if(!exists ${$q_h}{$q})  # if first occurrence of $q (abstracted $stmt)
                      {
                         ${$q_h}{$q} = {id     => $statement_id++,
-                                       sample => $stmt,
                                        db     => $use_db{$cid},
                                        cid    => $cid
                                       };
+                        ${$s_h}{$q} = $stmt;
                      }
 
                      $x = ${$q_h}{$q};
@@ -572,7 +577,7 @@ sub parse_general_logs
 
                         $$u_h{$q}->{c} += 1 if $u_h;  # all users
                      }
-   
+
                      _d("parse_general_logs: cid $cid, c_cum $x->{c_sum}, db $x->{db}: SAVED previous stmt: $stmt") if $debug;
 
                   } # if($valid_stmt) after grep
@@ -603,6 +608,7 @@ sub parse_slow_logs
 
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
+   my $s_h;          # ref to samples hash
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $msl;          # 0 = baisc slow log; 1 = microslow patched slow log
@@ -630,6 +636,7 @@ sub parse_slow_logs
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs = $params{logs};
    $q_h  = $params{queries};
+   $s_h  = $params{samples};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
    # $msl  = (exists $params{microslow}   ? $params{microslow}   : 0);
@@ -671,9 +678,9 @@ sub parse_slow_logs
          $line = <LOG>;
          if ( $line =~ m/^# Thread_id/ ) {
             $msl = 1;
-            
+
             ($cid) = $line =~ /^# Thread_id: (\d+)\s+Schema: (.*)/;
-   
+
             next if (exists $mf{cid} && !passes_meta_filter('cid', $cid, 'n'));
 
             if($2)  # database given
@@ -710,11 +717,11 @@ sub parse_slow_logs
 
             ($qchit, $fullscan, $fulljoin, $tmptable, $disktmptable) = $line =~
                /^# QC_Hit: (\w+)\s+Full_scan: (\w+)\s+Full_join: (\w+)\s+Tmp_table: (\w+)\s+Tmp_table_on_disk: (\w+)/;
-   
+
             $line = <LOG>;
             ($filesort, $diskfilesort, $merge) = $line =~
                /^# Filesort: (\w+)\s+Filesort_on_disk: (\w+)\s+Merge_passes: (\d+)/;
-   
+
             next if (exists $mf{qchit}        && !passes_meta_filter('qchit',        $qchit,        's'));
             next if (exists $mf{fullscan}     && !passes_meta_filter('fullscan',     $fullscan,     's'));
             next if (exists $mf{fulljoin}     && !passes_meta_filter('fulljoin',     $fulljoin,     's'));
@@ -723,24 +730,24 @@ sub parse_slow_logs
             next if (exists $mf{filesort}     && !passes_meta_filter('filesort',     $filesort,     's'));
             next if (exists $mf{diskfilesort} && !passes_meta_filter('diskfilesort', $diskfilesort, 's'));
             next if (exists $mf{merge}        && !passes_meta_filter('merge',        $merge,        'n'));
-   
+
             $line = <LOG>;
-   
+
             if($line =~ /^#\s+InnoDB_IO_r_ops/) # InnoDB values
             {
                $have_innodb = 1;
-   
+
                ($iorops, $iorbytes, $iorwait) = $line =~
                   /^#\s+InnoDB_IO_r_ops: (\d+)\s+InnoDB_IO_r_bytes: (\d+)\s+InnoDB_IO_r_wait: ([\d\.]+)/;
-   
+
                $line = <LOG>;
                ($reclwait, $qwait) = $line =~
                   /^#\s+InnoDB_rec_lock_wait: ([\d\.]+)\s+InnoDB_queue_wait: ([\d\.]+)/;
-   
+
                $line = <LOG>;
                ($pages) = $line =~
                   /^#\s+InnoDB_pages_distinct: (\d+)/;
-   
+
                next if (exists $mf{iorops}   && !passes_meta_filter('iorops',   $iorops,   'n'));
                next if (exists $mf{iorbytes} && !passes_meta_filter('iorbytes', $iorbytes, 'n'));
                next if (exists $mf{iorwait}  && !passes_meta_filter('iorwait',  $iorwait,  'n'));
@@ -760,14 +767,14 @@ sub parse_slow_logs
             last if $line =~ /^#(?! administrator )/; # stop at next stmt but not administrator commands
             last if $line =~ /^\/(?![\*\/]+)/;        # stop at log header lines but not SQL comment lines
             next if $line =~ /^\s*$/;
-   
+
             $stmt .= $line;
          }
-   
+
          chomp $stmt;
 
          $valid_stmt = check_stmt(\$stmt, \$use_db);
-   
+
          if($valid_stmt)
          {
             push @{$q_a}, "USE $use_db" if ($q_a && $use_db);
@@ -777,7 +784,8 @@ sub parse_slow_logs
 
             if(!exists $$q_h{$q})  # if first occurrence of $q (abstracted $stmt)
             {
-               $$q_h{$q} = { id => $statement_id++, sample => $stmt, db => $use_db };
+               $$q_h{$q} = { id => $statement_id++, db => $use_db };
+               $$s_h{$q} = $stmt;
 
                $x = $$q_h{$q};  # just for brevity
 
@@ -914,15 +922,15 @@ sub parse_slow_logs
             } # if($save_meta_values)
 
             _d("parse_slow_logs: c_sum $x->{c_sum}, db $x->{db}, SAVED stmt\n") if $debug;
-   
+
          } # if($valid_stmt)
          else
          {
             _d("parse_slow_logs: INVALID stmt (fails filter or grep)\n") if $debug;
          }
-   
+
          redo;
-   
+
       } # while($line = <LOG>)
 
       close LOG;
@@ -938,6 +946,7 @@ sub parse_udl_logs
 
    my $logs;         # ref to array with log file names
    my $q_h;          # ref to queries hash
+   my $s_h;          # ref to samples hash
    my $u_h;          # ref to users hash (optional)
    my $q_a;          # ref to array in which to save all statments (optional)
    my $stmt;         # statements from log (1 or more)--filtered by check_stmt()
@@ -958,6 +967,7 @@ sub parse_udl_logs
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs = $params{logs};
    $q_h  = $params{queries};
+   $s_h  = $params{samples};
    $u_h  = (exists $params{users}       ? $params{users}       : 0);
    $q_a  = (exists $params{all_queries} ? $params{all_queries} : 0);
 
@@ -1044,7 +1054,8 @@ sub parse_udl_logs
 
             if(!exists $$q_h{$q})  # if first occurrence of $q (abstracted $stmt)
             {
-               $$q_h{$q} = { id => $statement_id++, sample => $stmt, db => $use_db };
+               $$q_h{$q} = { id => $statement_id++, db => $use_db };
+               $$s_h{$q} = $stmt;
 
                $x = $$q_h{$q};  # just for brevity
 
@@ -1053,7 +1064,7 @@ sub parse_udl_logs
                   for($t = 0; $t < scalar @meta_vals; $t++)
                   {
                      $z = $$meta_saves{$$meta_names[$t]};  # i, na, nf
-   
+
                      if($z eq 'i')  # save initial meta value once
                      {
                         $x->{$$meta_names[$t]} = $meta_vals[$t];
@@ -1081,16 +1092,16 @@ sub parse_udl_logs
                for($t = 0; $t < scalar @meta_vals; $t++)
                {
                   $z = $$meta_saves{$$meta_names[$t]};  # i, na, nf
-   
+
                   if($z eq 'na' || $z eq 'nf')  # save meta value plus aggregates
                   {
                      $x->{"$$meta_names[$t]\_sum"} += $meta_vals[$t];
-   
+
                      $x->{"$$meta_names[$t]\_min"} = $meta_vals[$t]
                         if $meta_vals[$t] < $x->{"$$meta_names[$t]\_min"};
                      $x->{"$$meta_names[$t]\_max"} = $meta_vals[$t]
                         if $meta_vals[$t] > $x->{"$$meta_names[$t]\_max"};
-   
+
                      if($z eq 'nf')  # numeric plus full aggregate (all values)
                      {
                         push @{$x->{"$$meta_names[$t]\_a"}}, $meta_vals[$t];
@@ -1404,7 +1415,7 @@ sub calc_final_values
       {
          $$u_h{$z}->{p} = _p($$u_h{$z}->{c}, $total_queries);
       }
-      
+
       $$u_h{total} = scalar keys %$u_h;  # total number of unique users
    }
 
@@ -1435,7 +1446,7 @@ sub apply_final_meta_filters
    foreach $meta (keys %mf)  # e.g. t_max
    {
       next unless $meta =~ /_(?:min|max|avg|sum|p)$/;
-                     
+
       foreach $q (keys %$q_h)
       {
          $x = $$q_h{$q};
@@ -1475,7 +1486,7 @@ sub apply_final_meta_filters
 #
 # Internal subs not exported; for call directly by hackers
 #
-sub set_debug 
+sub set_debug
 {
    $debug             = shift;
    $debug_filehandles = shift;
@@ -1841,7 +1852,7 @@ sub get_log_type {
    $log_file ||= '';
    MKDEBUG && _d("Detecting log type for $log_file");
    return LOG_TYPE_UNKNOWN if !$log_file;
-   
+
    my $log_fh;
    if ( !open $log_fh, '<', $log_file ) {
       MKDEBUG && _d("Failed to open $log_file: $OS_ERROR");
@@ -2104,7 +2115,7 @@ my $WIN = ($^O eq 'MSWin32' ? 1 : 0);
 my %op;
 my %mycnf; # ~/.my.cnf
 my ($dbh, $query, $MySQL_connected);
-my ($q_h, %queries, %u_h, $q_a, @all_queries, %g_t);
+my ($q_h, $s_h, %queries, %u_h, $q_a, @all_queries, %g_t, %samples);
 my $total_queries;
 my $total_unique_queries;
 my $total_unique_users;
@@ -2119,7 +2130,7 @@ my (@formats, @format_vals);  # standard report
 my %conditional_formats;      #
 
 read_dot_mysqlsla();  # read ~/.mysqlsla
-get_options();        # parse command line options which override ~/.mysqlsla 
+get_options();        # parse command line options which override ~/.mysqlsla
 
 help_and_exit() if $op{help};
 
@@ -2193,9 +2204,18 @@ $q_a = (exists $r{'time-all'} || exists $r{'print-all'} ? \@all_queries : 0);
 if($op{replay}) { $q_h = retrieve($op{replay}); }
 else            { $q_h = \%queries;             }
 
+use BerkeleyDB;
+use MLDBM qw(BerkeleyDB::Btree Storable);
+$MLDBM::UseDB = "BerkeleyDB::Btree";
+unlink("samples.tmp");
+
+tie(%samples, "MLDBM", -Filename => "samples.tmp", -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
+$s_h = \%samples;
+
 # Used in parse_logs() and passed to various ParseFilter subs
 %params = (logs        => \@ARGV,
            queries     => $q_h,
+           samples     => $s_h,
            users       => \%u_h,
            all_queries => $q_a,
            microslow   => ($op{lt} eq 'msl' ? 1 : 0));
@@ -2240,6 +2260,9 @@ EXPLAIN_queries($q_h) if ($op{ex} || $extras{tcount} || $extras{tschema});
 save_replay($op{'post-sort-replay'}) if $op{'post-sort-replay'};
 
 make_reports() unless $op{silent};
+
+untie %samples;
+unlink("samples.tmp");
 
 exit;
 
@@ -2349,7 +2372,7 @@ sub connect_to_MySQL
    $MySQL_connected = 1;
 }
 
-sub parse_logs 
+sub parse_logs
 {
    my $retval = 0;
 
@@ -2480,7 +2503,7 @@ sub calc_nthp
 
          $x = \@{$$q_h{$q}->{$meta_name}};  # refer x to the meta's array of values
 
-         next if scalar @$x < $op{'nthpm'}; 
+         next if scalar @$x < $op{'nthpm'};
 
          @s = sort { $a <=> $b } @$x;            # sort values in array
          $n = ((scalar @$x) * $op{nthp}) / 100;  # calc cut-off percent (default: 95)
@@ -2627,7 +2650,7 @@ sub EXPLAIN_queries
       $x->{EXPLAIN_err} = $DBI::errstr and next if $DBI::err;
 
       PARSE_EXPLAIN:
-      
+
       $x->{EXPLAIN} = [] if $op{ex};
       $x->{tcount}  = '' if $extras{tcount};
       $x->{TSCHEMA} = [] if $extras{tschema};
@@ -2801,7 +2824,7 @@ sub get_table_ref
 
    $table_ref = 0;
 
-   if($q =~ /from\s+(.+?)(?:where|order|limit|having)+.+/is) 
+   if($q =~ /from\s+(.+?)(?:where|order|limit|having)+.+/is)
    {
       $table_ref = $1;
    }
@@ -2880,7 +2903,7 @@ sub time_profile
 {
    my $print = shift;  # print progress indicators
    my $q     = shift;  # reference to array with queries
-   my $times = shift;  # reference to array in which to save exection times  
+   my $times = shift;  # reference to array in which to save exection times
 
    my $n;
    my $perc;
@@ -2972,7 +2995,7 @@ sub make_reports
    standard_report(\@headers, \@header_vals, \@formats, \@format_vals)
                          if exists $r{standard};
 
-   time_all_report()     if exists $r{'time-all'};      
+   time_all_report()     if exists $r{'time-all'};
    print_unique_report() if exists $r{'print-unique'};
    print_all_report()    if exists $r{'print-all'};
    dump_report()         if exists $r{dump};
@@ -2996,6 +3019,7 @@ sub standard_report
    my $i;
    my $n;
    my $x;
+   my $sample;
 
    $q = '';
 
@@ -3075,7 +3099,7 @@ sub time_all_report
    {
       $avg = avg($op{avg}, \@t, \$total);
 
-      print "\nTotal All Queries: ", format_u_time($total), "\n"; 
+      print "\nTotal All Queries: ", format_u_time($total), "\n";
       print "Average Per-Query: ", format_u_time($avg), "\n\n";
    }
    else
@@ -3091,7 +3115,7 @@ sub print_all_report
 
 sub print_unique_report
 {
-   foreach(keys %$q_h) { print "$$q_h{$_}->{sample}\n\n"; }
+   foreach(keys %$q_h) { print "$%samples{$_}\n\n"; }
 }
 
 sub resolve_coded_value
@@ -3113,7 +3137,7 @@ sub resolve_coded_value
    # will refer to a meta-property name in %q_h. 'query' and 'n' are special
    # case: query is the abstracted statment (the key to %q_h), and n is the
    # statement's number in the sort order. Finally, a value name might refer
-   # to a grand total value in %g_t. 
+   # to a grand total value in %g_t.
 
    if($$q && exists $$q_h{$$q}->{$value})
    {
@@ -3126,6 +3150,7 @@ sub resolve_coded_value
    }
 
    $value = $$q, goto FORMAT_VALUE if $value eq 'query';
+   $value = $$s_h{$$q}, goto FORMAT_VALUE if $value eq 'sample';
    $value = $g_t{$value}, goto FORMAT_VALUE if exists $g_t{$value};
    $value = $total_queries, goto FORMAT_VALUE if $value eq 'total_queries';
    $value = $total_unique_queries, goto FORMAT_VALUE if $value eq 'total_unique_queries';
@@ -3479,7 +3504,7 @@ sub d
 sub get_options
 {
    my $ops_ok;
-   
+
    $ops_ok = GetOptions(
       \%op,
       "user=s",
@@ -3491,7 +3516,7 @@ sub get_options
       "mycnf=s",
       "db|D|databases=s",
       "help|?",
-      "lt|log-type=s", 
+      "lt|log-type=s",
       "uf|udl-format=s",
       "sort=s",
       "flush-qc",
@@ -3599,7 +3624,7 @@ sub set_MySQL_reserved_words
       trigger 0          true 0           undo 0
       union 0            unique 0         unlock 0
       unsigned 0         update 0         usage 0
-      use 0              using 0          utc_date 0 
+      use 0              using 0          utc_date 0
       utc_time 0         utc_timestamp 0  values 0
       varbinary 0        varchar 0        varcharacter 0
       varying 0          when 0           where 0
