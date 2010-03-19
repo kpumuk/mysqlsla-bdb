@@ -1475,6 +1475,7 @@ sub calc_final_values
    {
       foreach $z (keys %$u_h)
       {
+         next if $z eq "total";
          $$u_h{$z}->{p} = _p($$u_h{$z}->{c}, $total_queries);
       }
 
@@ -2177,7 +2178,8 @@ my $WIN = ($^O eq 'MSWin32' ? 1 : 0);
 my %op;
 my %mycnf; # ~/.my.cnf
 my ($dbh, $query, $MySQL_connected);
-my ($q_h, %queries, $s_h, %samples, $a_h, %abstracts, $ra_h, %rabstracts, $alls_db, %u_h, $q_a, @all_queries, %g_t);
+my ($q_h, %queries, $s_h, %samples, $a_h, %abstracts, $ra_h, %rabstracts, $u_h, %u_h, $q_a, @all_queries, %g_t);
+my ($s_db, $a_db, $ra_db, $alls_db);
 my $total_queries;
 my $total_unique_queries;
 my $total_unique_users;
@@ -2263,23 +2265,38 @@ $op{avg} ||= 1;
 
 $q_a = (exists $r{'time-all'} || exists $r{'print-all'} ? \@all_queries : 0);
 
-if($op{replay}) { $q_h = retrieve($op{replay}); }
-else            { $q_h = \%queries;             }
+if($op{replay})
+{
+   $q_h = retrieve($op{replay});
+   $u_h = retrieve("$op{replay}.users.tmp");
+   # Restore databases from replay
+   use File::Copy;
+   copy("$op{replay}.samples.tmp",    "samples.tmp");
+   copy("$op{replay}.abstracts.tmp",  "abstracts.tmp");
+   copy("$op{replay}.rabstracts.tmp", "rabstracts.tmp");
+   copy("$op{replay}.alls.tmp",       "alls.tmp");
+}
+else
+{
+   $q_h = \%queries;
+   $u_h = \%u_h;
+   # Remove stale databases
+   unlink("samples.tmp");
+   unlink("abstracts.tmp");
+   unlink("rabstracts.tmp");
+   unlink("alls.tmp");
+}
 
 use BerkeleyDB;
-unlink("samples.tmp");
-unlink("abstracts.tmp");
-unlink("rabstracts.tmp");
-unlink("alls.tmp");
 
-tie(%samples,    "BerkeleyDB::Hash", -Filename => "samples.tmp",    -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
-tie(%abstracts,  "BerkeleyDB::Hash", -Filename => "abstracts.tmp",  -Flags => DB_CREATE) or die "Cannot open file abstracts.tmp: $!\n";
-tie(%rabstracts, "BerkeleyDB::Hash", -Filename => "rabstracts.tmp", -Flags => DB_CREATE) or die "Cannot open file rabstracts.tmp: $!\n";
+$s_db  = tie(%samples,    "BerkeleyDB::Hash", -Filename => "samples.tmp",    -Flags => DB_CREATE) or die "Cannot open file queries.tmp: $!\n";
+$a_db  = tie(%abstracts,  "BerkeleyDB::Hash", -Filename => "abstracts.tmp",  -Flags => DB_CREATE) or die "Cannot open file abstracts.tmp: $!\n";
+$ra_db = tie(%rabstracts, "BerkeleyDB::Hash", -Filename => "rabstracts.tmp", -Flags => DB_CREATE) or die "Cannot open file rabstracts.tmp: $!\n";
 $s_h  = \%samples;
 $a_h  = \%abstracts;
 $ra_h = \%rabstracts;
 
-$alls_db = new BerkeleyDB::Hash(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP) or die "Cannot open file alls.tmp: $!\n";
+$alls_db = new BerkeleyDB::Btree(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP) or die "Cannot open file alls.tmp: $!\n";
 
 # Used in parse_logs() and passed to various ParseFilter subs
 %params = (logs        => \@ARGV,
@@ -2288,15 +2305,14 @@ $alls_db = new BerkeleyDB::Hash(-Filename => "alls.tmp", -Flags => DB_CREATE, -P
            abstracts   => $a_h,
            rabstracts  => $ra_h,
            alls_db     => \$alls_db,
-           users       => \%u_h,
+           users       => $u_h,
            all_queries => $q_a,
            microslow   => ($op{lt} eq 'msl' ? 1 : 0));
 
 
-
 LOG_PARSING:
 
-refilter_replay($q_h) if ($op{replay} && ($op{sf} || $op{mf}));
+refilter_replay(%params) if ($op{replay} && ($op{sf} || $op{mf}));
 parse_logs() if @ARGV;
 
 $total_queries = ParseFilter::calc_final_values(%params, \%g_t);
@@ -2333,10 +2349,16 @@ save_replay($op{'post-sort-replay'}) if $op{'post-sort-replay'};
 
 make_reports() unless $op{silent};
 
+# Close all databases
+undef $s_db;
+undef $a_db;
+undef $ra_db;
+undef $alls_db;
+# Untie all ties
 untie %samples;
 untie %abstracts;
 untie %rabstracts;
-undef $alls_db;
+# Remove all temporary files
 unlink("samples.tmp");
 unlink("abstracts.tmp");
 unlink("rabstracts.tmp");
@@ -2469,7 +2491,10 @@ sub parse_logs
 
 sub refilter_replay
 {
-   my $q_h = shift;  # hash ref
+   my %params = @_;  # hash of params
+
+   my $q_h;          # ref to queries hash
+   my $s_h;          # ref to samples hash
 
    my $q;
    my $x;
@@ -2478,6 +2503,10 @@ sub refilter_replay
    my %type_cache;
    my $mf;
    my $sf;
+   my $sample;
+
+   $q_h     = $params{queries};
+   $s_h     = $params{samples};
 
    $mf = ParseFilter::get_meta_filter();
    $sf = ParseFilter::get_statement_filter();
@@ -2525,9 +2554,10 @@ sub refilter_replay
          }
 
          # Reapply any statement filters
+         $sample = $$s_h{$x};
          if($op{sf})
          {
-            if($x->{sample} !~ /^\s*\(?(\w+)\s+/)  # extract SQL statement type
+            if($sample !~ /^\s*\(?(\w+)\s+/)  # extract SQL statement type
             {
                # This shouldn't happen in a replay
                d("refilter_replay: FAIL NON-SQL statement: $x->{sample}\n") if $op{debug};
@@ -2538,7 +2568,7 @@ sub refilter_replay
          }
 
          # Reapply grep
-         if($op{grep} && ($x->{sample} !~ /$op{grep}/io))
+         if($op{grep} && ($sample !~ /$op{grep}/io))
          {
             d("refilter_replay: stmt FAILS grep: $x->{sample}\n") if $op{debug};
             goto DELETE_QUERY;
@@ -3116,7 +3146,7 @@ sub standard_report
    my $x;
    my $sample;
 
-   $q = -1;
+   $q = 0;
 
    for($i = 0; $i < scalar @$headers; $i++)
    {
@@ -3172,7 +3202,7 @@ sub dump_report
    $Data::Dumper::Quotekeys = 0;
 
    print Dumper($q_h), "\n";
-   print Dumper(\%u_h), "\n";
+   print Dumper($u_h), "\n";
    print Dumper(\%g_t), "\n";
 }
 
@@ -3387,9 +3417,25 @@ sub save_replay
 {
    my $outfile = shift;
 
+   use File::Copy;
+   $s_db->db_sync();
+   $a_db->db_sync();
+   $ra_db->db_sync();
+   $alls_db->db_sync();
+   copy("samples.tmp",    "$outfile.samples.tmp");
+   copy("abstracts.tmp",  "$outfile.abstracts.tmp");
+   copy("rabstracts.tmp", "$outfile.rabstracts.tmp");
+   copy("alls.tmp",       "$outfile.alls.tmp");
+
    if(!store($q_h, $outfile))
    {
-      d("save_replay: store() failed on file '$outfile'\n") if $op{deubg};
+      d("save_replay: store() failed on file '$outfile'\n") if $op{debug};
+      return;
+   }
+
+   if(!store($u_h, "$outfile.users.tmp"))
+   {
+      d("save_replay: store() failed on file '$outfile.users.tmp'\n") if $op{debug};
       return;
    }
 }
@@ -3443,8 +3489,8 @@ sub stmt_users_summary
    foreach( sort { $x->{users}->{$b} <=> $x->{users}->{$a} } keys %{$x->{users}} )
    {
       $s_p = p($x->{users}->{$_}, $x->{c_sum});
-      $u_c = ($u_h{$_}->{c} ? $u_h{$_}->{c} : '');
-      $u_p = ($u_h{$_}->{p} ? $u_h{$_}->{p} : '');
+      $u_c = ($$u_h{$_}->{c} ? $$u_h{$_}->{c} : '');
+      $u_p = ($$u_h{$_}->{p} ? $$u_h{$_}->{p} : '');
 
       $s .= "\t$_ : $s_p\% ($x->{users}->{$_}) of query, $u_p\% ($u_c) of all users\n";
    }
