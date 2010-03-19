@@ -3,10 +3,10 @@ mysqlsla-bdb version 2.03
 This version of mysqlsla has been modified to work with huge (multi-gigabyte)
 slow logs by using BerkeleyDB instead of plain perl hashes. This version
 is about 2 times slower and we did not test it with anything but slow logs
-(but it should work, so submit [you issues] [4], I'll try to fix). Patches
+(but it should work, so submit [your issues] [4], I'll try to fix). Patches
 are welcome too.
 
-[Replays] [5] are work too in this patch. There is only difference: it stores
+[Replays] [5] work too in this patch. There a difference: it stores
 several files instead of a single one. If your relay file called "mylog.relay",
 mysqlsla-bdb will create several files "mylog.relay.\*.tmp", where it will store
 BDB files and additional hashes. Please note: I have removed *third limitation:
@@ -14,6 +14,9 @@ total users (all log-wide unique "user@host IP") does not work with replays.*
 
 This package contains both old (unpatched) version of mysqlsla, and the patched
 one, called mysqlsla-bdb. All arguments are the same.
+
+Here are some stats: 70 Gb slow log file took 7 hours to build a report.
+Memory usage is about 20-30 Mb.
 
 mysqlsla version 2.03
 =====================
@@ -50,6 +53,7 @@ on your system:
     DBI
     Getopt::Long
     Storable
+    BerkeleyDB
 
 If available, `Term::ReadKey` will also be used.
 
