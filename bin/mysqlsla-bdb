@@ -2598,6 +2598,7 @@ sub calc_nthp
    $op{nthp}  ||= 95;
    $op{nthpm} ||= 10;
 
+   return if exists($op{'no-nthp'});
    d("calc_nthp: nthp $op{nthp} nthpm $op{nthpm}\n") if $op{debug};
 
    foreach $q (keys %$q_h)
@@ -3690,6 +3691,7 @@ sub get_options
       "microsecond-symbol|us=s",
       "debug",
       "extra|x=s",
+      "no-nthp",
    );
 
    help_and_exit() if !$ops_ok;
