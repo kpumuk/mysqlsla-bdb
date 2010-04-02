@@ -740,6 +740,16 @@ sub parse_slow_logs
 
          $stmt = '';
 
+         # Temporary hack to allow processing of extended slow logs
+         # (introduced in Percona XtraDB 9.1). Just skip this line for now.
+         # Bytes_sent: 11  Tmp_tables: 0  Tmp_disk_tables: 0  Tmp_table_sizes: 0
+         $line = <LOG>;
+         if($line !~ /^# Bytes_sent/)
+         {
+            $stmt = $line;
+            goto READ_STATEMENTS;
+         }
+
          if($msl)
          {
             $line = <LOG>;
