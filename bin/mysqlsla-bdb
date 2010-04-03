@@ -746,6 +746,7 @@ sub parse_slow_logs
          $line = <LOG>;
          if($line !~ /^# Bytes_sent/)
          {
+            goto CHECK_SHORT_MSL if($msl);
             $stmt = $line;
             goto READ_STATEMENTS;
          }
@@ -753,6 +754,7 @@ sub parse_slow_logs
          if($msl)
          {
             $line = <LOG>;
+            CHECK_SHORT_MSL:
             if($line !~ /^# QC_Hit/)
             {
                $short_msl = 1;
