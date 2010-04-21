@@ -26,6 +26,7 @@ my $save_meta_values   = 1;
 my $save_all_values    = 0;
 my $abstract_in        = 0;
 my $abstract_group_in  = 0;
+my $abstract_or_in     = '';
 my $abstract_values    = 0;
 my $atomic_statements  = 0;
 my $db_inheritance     = 0;
@@ -53,6 +54,7 @@ sub set_save_meta_values     { $save_meta_values = shift;  }
 sub set_save_all_values      { $save_all_values  = shift;  }
 sub set_IN_abstraction       { $abstract_in = shift;       }
 sub set_IN_group_abstraction { $abstract_group_in = shift; }
+sub set_IN_or_abstraction    { $abstract_or_in = lc shift; }
 sub set_VALUES_abstraction   { $abstract_values  = shift;  }
 sub set_atomic_statements    { $atomic_statements = shift; }
 sub set_db_inheritance       { $db_inheritance = shift;    }
@@ -1316,6 +1318,15 @@ sub abstract_stmt
       pos($q) = $t;
    }
 
+   # compact abstract OR IN
+   if($abstract_or_in)
+   {
+      while ($q =~ m/((\(.*?\s*=\s*(?:N|'S')\))(?:\s*or\s*\2)+)/go)
+      {
+         $q =~ s/((\((.*?)\s*=\s*(N|'S')\))(?:\s*or\s*\2)+)/compact_or_IN($3, $4, $1)/e;
+      }
+   }
+
    # compact VALUES clauses: (NULL, 'S'), (NULL, 'S') --> (NULL, 'S')2
    while ($q =~ m/( values\s?)/go)
    {
@@ -1325,6 +1336,19 @@ sub abstract_stmt
    }
 
    return $q;  # abstracted form of stmt
+}
+
+sub compact_or_IN
+{
+   my $f  = shift;  # field name
+   my $t  = shift;  # type of vals: N or 'S'
+   my $in = shift;
+
+   my $n;  # number of N or 'S' vals
+
+   $n = ($in =~ tr/=//) + 1;       # count number of vals
+
+   return "$f $abstract_or_in " . compact_IN($t . (',' x $n));
 }
 
 sub compact_IN
@@ -2254,15 +2278,16 @@ $mycnf{user}   = $op{user}   if $op{user};
 $mycnf{user} ||= $ENV{USER};
 
 # Set ParseFilter tweaks
-ParseFilter::set_save_meta_values(0)      if $op{'dont-save-meta-values'};
-ParseFilter::set_save_all_values(1)       if $op{'save-all-values'};
-ParseFilter::set_IN_abstraction($op{Ai})  if $op{Ai};
-ParseFilter::set_IN_group_abstraction(1)  if $op{Agi};
-ParseFilter::set_VALUES_abstraction(1)    if $op{Av};
-ParseFilter::set_atomic_statements(1)     if $op{'atomic-statements'};
-ParseFilter::set_db_inheritance(1)        if $op{'db-inheritance'};
-ParseFilter::set_grep($op{grep})          if $op{grep};
-ParseFilter::set_debug(1)                 if $op{debug};
+ParseFilter::set_save_meta_values(0)         if $op{'dont-save-meta-values'};
+ParseFilter::set_save_all_values(1)          if $op{'save-all-values'};
+ParseFilter::set_IN_abstraction($op{Ai})     if $op{Ai};
+ParseFilter::set_IN_group_abstraction(1)     if $op{Agi};
+ParseFilter::set_IN_or_abstraction($op{Aoi}) if $op{Aoi};
+ParseFilter::set_VALUES_abstraction(1)       if $op{Av};
+ParseFilter::set_atomic_statements(1)        if $op{'atomic-statements'};
+ParseFilter::set_db_inheritance(1)           if $op{'db-inheritance'};
+ParseFilter::set_grep($op{grep})             if $op{grep};
+ParseFilter::set_debug(1)                    if $op{debug};
 
 # Must check and set this before we call set_statement_filter() below
 if(($op{te} || exists $r{'time-all'}))
@@ -3489,6 +3514,12 @@ sub beautify
          substr($q, $p - $l, $l, uc($1));
          pos($q) = $p;
       }
+      elsif($abstract_or_in && $1 eq $abstract_or_in)
+      {
+         $p = pos($q);
+         substr($q, $p - $l, $l, uc($1));
+         pos($q) = $p;
+      }
    }
 
    return $q;
@@ -3706,6 +3737,7 @@ sub get_options
       "Av|abstract-values",
       "Ai|abstract-in=i",
       "Agi|abstract-group-in",
+      "Aoi|abstract-or-in=s",
       "atomic-statements",
       "dont-save-meta-values",
       "save-all-values",
