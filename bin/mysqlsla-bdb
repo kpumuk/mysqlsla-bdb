@@ -25,6 +25,7 @@ our $VERSION = '1.01';
 my $save_meta_values   = 1;
 my $save_all_values    = 0;
 my $abstract_in        = 0;
+my $abstract_group_in  = 0;
 my $abstract_values    = 0;
 my $atomic_statements  = 0;
 my $db_inheritance     = 0;
@@ -48,12 +49,13 @@ sub get_statement_filter { return \%sf; }
 #
 # Subs to set module options exported as :options
 #
-sub set_save_meta_values    { $save_meta_values = shift;  }
-sub set_save_all_values     { $save_all_values  = shift;  }
-sub set_IN_abstraction      { $abstract_in = shift;       }
-sub set_VALUES_abstraction  { $abstract_values  = shift;  }
-sub set_atomic_statements   { $atomic_statements = shift; }
-sub set_db_inheritance      { $db_inheritance = shift;    }
+sub set_save_meta_values     { $save_meta_values = shift;  }
+sub set_save_all_values      { $save_all_values  = shift;  }
+sub set_IN_abstraction       { $abstract_in = shift;       }
+sub set_IN_group_abstraction { $abstract_group_in = shift; }
+sub set_VALUES_abstraction   { $abstract_values  = shift;  }
+sub set_atomic_statements    { $atomic_statements = shift; }
+sub set_db_inheritance       { $db_inheritance = shift;    }
 
 #
 # All subs exported by default
@@ -1296,6 +1298,7 @@ sub abstract_stmt
    $q =~ s/""/"S"/go;
    $q =~ s/(\\')//go;
    $q =~ s/(\\")//go;
+   # $q =~ s/'N'/N/go;
    $q =~ s/'[^']+'/'S'/go;
    $q =~ s/"[^"]+"/"S"/go;
    # ---
@@ -1334,7 +1337,12 @@ sub compact_IN
    $t = ($in =~ /N/ ? 'N' : 'S');  # determine type of vals
    $n = ($in =~ tr/,//) + 1;       # count number of vals
 
-   if($abstract_in)
+   if($abstract_group_in)
+   {
+      $t .= $n < 10 ? '' : $t . ($n < 100 ? '' : $t);
+      $n = '';
+   }
+   elsif($abstract_in)
    {
       use integer;
       my $z = $abstract_in;  # just for brevity
@@ -2249,6 +2257,7 @@ $mycnf{user} ||= $ENV{USER};
 ParseFilter::set_save_meta_values(0)      if $op{'dont-save-meta-values'};
 ParseFilter::set_save_all_values(1)       if $op{'save-all-values'};
 ParseFilter::set_IN_abstraction($op{Ai})  if $op{Ai};
+ParseFilter::set_IN_group_abstraction(1)  if $op{Agi};
 ParseFilter::set_VALUES_abstraction(1)    if $op{Av};
 ParseFilter::set_atomic_statements(1)     if $op{'atomic-statements'};
 ParseFilter::set_db_inheritance(1)        if $op{'db-inheritance'};
@@ -3696,6 +3705,7 @@ sub get_options
       "replay=s",
       "Av|abstract-values",
       "Ai|abstract-in=i",
+      "Agi|abstract-group-in",
       "atomic-statements",
       "dont-save-meta-values",
       "save-all-values",
