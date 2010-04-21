@@ -31,6 +31,7 @@ my $abstract_values    = 0;
 my $atomic_statements  = 0;
 my $db_inheritance     = 0;
 my $grep               = '';
+my $locations_prefix   = '';
 
 # Internal vars for hackers
 my %uf                 = ();  # udl format
@@ -58,6 +59,7 @@ sub set_IN_or_abstraction    { $abstract_or_in = lc shift; }
 sub set_VALUES_abstraction   { $abstract_values  = shift;  }
 sub set_atomic_statements    { $atomic_statements = shift; }
 sub set_db_inheritance       { $db_inheritance = shift;    }
+sub set_locations_prefix     { $locations_prefix = shift;  }
 
 #
 # All subs exported by default
@@ -213,6 +215,7 @@ sub parse_binary_logs
    my $x;            # becomes ref to $q_h{$q}
    my $use_db;       # db from USE db; statment
    my $line;         # buffer for processing lines from logs
+   my $location;     # current location
    my $log;          # current log file name
    my $sid;          # meta-property: server_id
    my $cid;          # meta-property: thread_id (a.k.a. connection id)
@@ -279,6 +282,13 @@ sub parse_binary_logs
             push @{$q_a}, "USE $use_db" if ($q_a && $use_db);
             push @{$q_a}, $stmt if $q_a;
 
+            # Strip location
+            if($locations_prefix)
+            {
+               $stmt =~ s/\s*\/\*\Q$locations_prefix\E:(.*)\*\///;
+               $location = $1;
+            }
+
             $q = abstract_stmt($stmt);
 
             if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
@@ -319,6 +329,9 @@ sub parse_binary_logs
                $x->{ext_max}  = $ext if $ext > $x->{ext_max};
 
                push @{$x->{ext_all}}, $ext if $save_all_values;
+
+               # locations of this stmt
+               $x->{locations}->{$location} += 1 if($location);
             }
 
             _d("parse_binary_logs: c_sum $x->{c_sum}, db $x->{db}, SAVED stmt: $stmt\n") if $debug;
@@ -361,6 +374,7 @@ sub parse_general_logs
    my $match;        # first part of stmt after cmd
    my $log;          # current log file name
    my $line;         # current line read from log
+   my $location;     # current location
 
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs    = $params{logs};
@@ -581,6 +595,13 @@ sub parse_general_logs
                   {
                      push @$q_a, $stmt if $q_a;
 
+                     # Strip location
+                     if($locations_prefix)
+                     {
+                        $stmt =~ s/\s*\/\*\Q$locations_prefix\E:(.*)\*\///;
+                        $location = $1;
+                     }
+
                      $q = abstract_stmt($stmt);
 
                      if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
@@ -610,6 +631,9 @@ sub parse_general_logs
                         $x->{users}->{$q} += 1;  # users of this stmt
 
                         $$u_h{$q}->{c} += 1 if $u_h;  # all users
+
+                        # locations of this stmt
+                        $x->{locations}->{$location} += 1 if($location);
                      }
 
                      _d("parse_general_logs: cid $cid, c_cum $x->{c_sum}, db $x->{db}: SAVED previous stmt: $stmt") if $debug;
@@ -657,6 +681,7 @@ sub parse_slow_logs
    my $use_db;       # db from USE db; statment
    my $log;          # current log file name
    my $line;         # current line read from log
+   my $location;     # current location
    # basic slow log meta-propteries
    my ($user, $host, $IP);
    my ($time, $lock, $rows_sent, $rows_examined);
@@ -833,6 +858,13 @@ sub parse_slow_logs
             push @{$q_a}, "USE $use_db" if ($q_a && $use_db);
             push @{$q_a}, $stmt if $q_a;
 
+            # Strip location
+            if($locations_prefix)
+            {
+               $stmt =~ s/\s*\/\*\Q$locations_prefix\E:(.*)\*\///;
+               $location = $1;
+            }
+
             $q = abstract_stmt($stmt);
 
             if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
@@ -982,6 +1014,8 @@ sub parse_slow_logs
 
                $$u_h{$q}->{c} += 1 if $u_h;  # all users
 
+               # locations of this stmt
+               $x->{locations}->{$location} += 1 if($location);
             } # if($save_meta_values)
 
             _d("parse_slow_logs: c_sum $x->{c_sum}, db $x->{db}, SAVED stmt\n") if $debug;
@@ -1030,6 +1064,7 @@ sub parse_udl_logs
    my $z;            # becomes shorthand for $$meta_saves{$$meta_names[$t]}
    my $log;          # current log file name
    my $line;         # current line read from log
+   my $location;     # current location
 
    # Set local vars to params for brevity ($$q_h is nicer than $$params{queries})
    $logs    = $params{logs};
@@ -1120,6 +1155,13 @@ sub parse_udl_logs
             push @{$q_a}, "USE $use_db" if ($q_a && $use_db);
             push @{$q_a}, $stmt if $q_a;
 
+            # Strip location
+            if($locations_prefix)
+            {
+               $stmt =~ s/\s*\/\*\Q$locations_prefix\E:(.*)\*\///;
+               $location = $1;
+            }
+
             $q = abstract_stmt($stmt);
 
             if(!exists $$a_h{$q})  # if first occurrence of $q (abstracted $stmt)
@@ -1192,6 +1234,9 @@ sub parse_udl_logs
                      $$u_h{$meta_vals[$t]}->{c} += 1 if $u_h;  # all users
                   }
                }
+
+               # locations of this stmt
+               $x->{locations}->{$location} += 1 if($location);
             } # if($save_meta_values)
 
             _d("parse_udl_logs: c_sum $x->{c_sum}, db $x->{db}, SAVED stmt: $stmt\n") if $debug;
@@ -1673,6 +1718,8 @@ Database      : %s
 db
 Users         : %s
 users
+?Locations     : %s
+locations
 ?Table:#rows   : %s
 tcount
 ?Table schemas : %s
@@ -1714,6 +1761,8 @@ Database      : %s
 db
 Users         : %s
 users
+?Locations     : %s
+locations
 ?Table:#rows   : %s
 tcount
 ?Table schemas : %s
@@ -1763,6 +1812,8 @@ Database          : %s
 db
 Users             : %s
 users
+?Locations         : %s
+locations
 
 Query abstract:
 _
@@ -1811,6 +1862,8 @@ Database      : %s
 db
 Users         : %s
 users
+?Locations     : %s
+locations
 ?Table:#rows   : %s
 tcount
 ?Table schemas : %s
@@ -1878,6 +1931,8 @@ Count         : %s (%.2f%%)
 c_sum:short c_sum_p
 Database      : %s
 db
+?Locations     : %s
+locations
 ?Table:#rows   : %s
 tcount
 ?Table schemas : %s
@@ -2288,6 +2343,7 @@ ParseFilter::set_atomic_statements(1)        if $op{'atomic-statements'};
 ParseFilter::set_db_inheritance(1)           if $op{'db-inheritance'};
 ParseFilter::set_grep($op{grep})             if $op{grep};
 ParseFilter::set_debug(1)                    if $op{debug};
+ParseFilter::set_locations_prefix($op{loc})  if $op{loc};
 
 # Must check and set this before we call set_statement_filter() below
 if(($op{te} || exists $r{'time-all'}))
@@ -2945,7 +3001,7 @@ sub parse_table_aliases
 
    d("parse_table_aliases: table ref = '$table_ref'\n") if $op{debug};
 
-   if($table_ref =~ / (:?straight_)?join /i)
+   if($table_ref =~ /\s(:?straight_)?join /i)
    {
       $table_ref =~ s/ join /,/ig;
       while($table_ref =~ s/ (?:inner|outer|cross|left|right|natural),/,/ig) { }
@@ -3328,6 +3384,7 @@ sub resolve_coded_value
    $value = $total_unique_queries, goto FORMAT_VALUE if $value eq 'total_unique_queries';
    $value = $total_unique_users, goto FORMAT_VALUE if $value eq 'total_unique_users';
    $value = stmt_users_summary($q),goto SAVE_VALUE if $value eq 'users';
+   $value = stmt_locations_summary($q, \$resolved),goto SAVE_VALUE if $value eq 'locations';
    $value = EXPLAIN_summary($q, \$resolved),  goto SAVE_VALUE if $value eq 'explain';
    $value = schema_summary($q, \$resolved),   goto SAVE_VALUE if $value eq 'tschema';
    $value = $op{$value}, goto SAVE_VALUE  if ($code && $code eq 'op' && exists $op{$value});
@@ -3551,6 +3608,37 @@ sub stmt_users_summary
    return $s;
 }
 
+sub stmt_locations_summary
+{
+   my $q = shift;  # scalar ref
+   my $resolved = shift;  # scalar ref
+
+   my $x;
+   my $s;
+   my $s_p;
+
+   $s = "\n";
+
+   $x = $$q_h{$$q};
+
+   $$resolved = 1;
+
+   if(!exists $x->{locations})
+   {
+      $$resolved = 0;
+      return "No locations found or locations disabled (--locations option was not used)";
+   }
+
+   foreach( sort { $x->{locations}->{$b} <=> $x->{locations}->{$a} } keys %{$x->{locations}} )
+   {
+      $s_p = p($x->{locations}->{$_}, $x->{c_sum});
+
+      $s .= "\t$_ : $s_p\% ($x->{locations}->{$_}) of query\n";
+   }
+
+   return $s;
+}
+
 sub EXPLAIN_summary
 {
    my $q        = shift;  # scalar ref
@@ -3745,6 +3833,7 @@ sub get_options
       "microsecond-symbol|us=s",
       "debug",
       "extra|x=s",
+      "loc|locations=s",
       "no-nthp",
    );
 
