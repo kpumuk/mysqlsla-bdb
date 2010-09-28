@@ -2398,7 +2398,7 @@ $s_h  = \%samples;
 $a_h  = \%abstracts;
 $ra_h = \%rabstracts;
 
-$alls_db = new BerkeleyDB::Btree(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP) or die "Cannot open file alls.tmp: $!\n";
+$alls_db = new BerkeleyDB::Btree(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP | DB_DUPSORT, -DupCompare => sub { $_[0] <= $_[1] ? -1 : 1 }) or die "Cannot open file alls.tmp: $!\n";
 
 # Used in parse_logs() and passed to various ParseFilter subs
 %params = (logs        => \@ARGV,
@@ -2694,6 +2694,7 @@ sub calc_nthp
    my $n;
    my $q;
    my $x;
+   my ($sum, $avg, $min, $max);
    my $meta_name;
    my $base_meta_name;
 
@@ -2715,32 +2716,48 @@ sub calc_nthp
 
          if($2)
          {
-            my $cursor = $$alls_db->db_cursor();
             my ($k, $v) = ("$q\_$base_meta_name", "");
-            my @all;
+            my $cursor = $$alls_db->db_cursor();
+            my ($i, $cnt);
+            # Set the cursor position to the first value in this key
             $cursor->c_get($k, $v, DB_SET);
-            do
+            # Get the number of values in this key
+            $cursor->c_count($cnt, 0);
+
+            if ($cnt < $op{'nthpm'}) {
+               undef $cursor;
+               next;
+            }
+
+            $n = int(($cnt * $op{nthp}) / 100);  # calc cut-off percent (default: 95)
+            ($min, $sum) = ($v, $v);
+            for ($i = 1; $i < $n; $i++)
             {
-               push @all, $v;
-            } while ($cursor->c_get($k, $v, DB_NEXT_DUP) == 0);
+               $cursor->c_get($k, $v, DB_NEXT_DUP);
+               $sum += $v;
+            }
+            $max = $v;
+            $avg = $sum / $n;
             undef $cursor;
-            $x = \@all;
          }
          else
          {
             $x = \@{$$q_h{$q}->{$meta_name}};  # refer x to the meta's array of values
+
+            next if scalar @$x < $op{'nthpm'};
+
+            @s = sort { $a <=> $b } @$x;            # sort values in array
+            $n = ((scalar @$x) * $op{nthp}) / 100;  # calc cut-off percent (default: 95)
+            @s = splice(@s, 0, $n);                 # remove elements from array after cut-off percent
+            $min = $s[0];
+            $avg = avg(0, \@s, \$sum);
+            $max = $s[$n - 1];
          }
 
-         next if scalar @$x < $op{'nthpm'};
-
-         @s = sort { $a <=> $b } @$x;            # sort values in array
-         $n = ((scalar @$x) * $op{nthp}) / 100;  # calc cut-off percent (default: 95)
-         @s = splice(@s, 0, $n);                 # remove elements from array after cut-off percent
-
-         $$q_h{$q}->{"$base_meta_name\_min_nthp"} = $s[0];
-         $$q_h{$q}->{"$base_meta_name\_max_nthp"} = $s[$n - 1];
-         $$q_h{$q}->{"$base_meta_name\_avg_nthp"} = avg(0, \@s, \$n);
-         $$q_h{$q}->{"$base_meta_name\_sum_nthp"} = $n;
+         $$q_h{$q}->{"$base_meta_name\_min_nthp"} = $min;
+         $$q_h{$q}->{"$base_meta_name\_max_nthp"} = $max;
+         $$q_h{$q}->{"$base_meta_name\_avg_nthp"} = $avg;
+         $$q_h{$q}->{"$base_meta_name\_sum_nthp"} = $sum;
       }
    }
 }

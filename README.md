@@ -61,6 +61,19 @@ mysqlsla v2 uses an "internalized" version of [MySQL::Log::ParseFilter] [2].
 You do _not_ need to install this module separately.
 
 
+Benchmark
+=========
+
+Here are benchmark results for a 328Mb size slow log (previous is the version [b54c30f] [6]):
+
+    Version    Memory  Time
+    -----------------------
+    original  276.5Mb  1:14
+    previous   91.6Mb  2:30
+    current    14.3Mb  3:54
+
+The difference between _previous_ and _current_ is in 95% calculations: in the latter one this is done on disk, so the memory usage is minimal.
+
 Web sites
 =========
 1. [mysqlsla] [1]
@@ -90,3 +103,4 @@ http://www.gnu.org/copyleft/gpl.html
   [3]: http://www.maatkit.org/        "Maatkit"
   [4]: http://github.com/kpumuk/mysqlsla-bdb/issues "Issues"
   [5]: http://hackmysql.com/mysqlsla_replays "mysqlsla v2 Replays"
+  [6]: http://github.com/kpumuk/mysqlsla-bdb/commit/b54c30f19819cd34f1d45e2bd55811fac70bb002 "b54c30f"
