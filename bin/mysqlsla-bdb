@@ -887,10 +887,7 @@ sub parse_slow_logs
                   $x->{rs_min} = $rows_sent;
                   $x->{rs_max} = $rows_sent;
                   $x->{re_min} = $rows_examined;
-                  if ($rows_examined > $x->{re_max}) {
-                     $$s_h{$q} = $stmt;
-                     $x->{re_max} = $rows_examined
-                  }
+                  $x->{re_max} = $rows_examined;
 
                   if($msl)
                   {
