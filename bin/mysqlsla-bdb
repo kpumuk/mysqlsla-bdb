@@ -2401,7 +2401,7 @@ $s_h  = \%samples;
 $a_h  = \%abstracts;
 $ra_h = \%rabstracts;
 
-$alls_db = new BerkeleyDB::Btree(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP | DB_DUPSORT, -DupCompare => sub { $_[0] <= $_[1] ? -1 : 1 }) or die "Cannot open file alls.tmp: $!\n";
+$alls_db = new BerkeleyDB::Btree(-Filename => "alls.tmp", -Flags => DB_CREATE, -Property => DB_DUP) or die "Cannot open file alls.tmp: $!\n";
 
 # Used in parse_logs() and passed to various ParseFilter subs
 %params = (logs        => \@ARGV,
@@ -2721,26 +2721,47 @@ sub calc_nthp
          {
             my ($k, $v) = ("$q\_$base_meta_name", "");
             my $cursor = $$alls_db->db_cursor();
-            my ($i, $cnt);
+            my ($i, $j, $cnt);
             # Set the cursor position to the first value in this key
             $cursor->c_get($k, $v, DB_SET);
             # Get the number of values in this key
             $cursor->c_count($cnt, 0);
 
             if ($cnt < $op{'nthpm'}) {
+               $cursor->c_close();
                undef $cursor;
                next;
             }
 
             $n = int(($cnt * $op{nthp}) / 100);  # calc cut-off percent (default: 95)
-            ($min, $sum) = ($v, $v);
-            for ($i = 1; $i < $n; $i++)
-            {
-               $cursor->c_get($k, $v, DB_NEXT_DUP);
-               $sum += $v;
+            my ($bufsize, $bufext, @x);
+            $bufsize = $cnt - $n;
+            $bufext = 10000 > $n ? $n : 10000;
+            # $#x = $bufext + $bufsize;
+
+            $sum = $max = $i = 0;
+            $min = $v;
+            while ($i < $cnt) {
+               my $toread;
+               $toread = $bufext + ($i == 0 ? $bufsize : 0);
+               $toread = $cnt - $i if $toread > $cnt - $i;
+               for ($j = 0; $j < $toread; $j++) {
+                  $min = $v if ($min > $v);
+                  $x[$j] = $v;
+                  $cursor->c_get($k, $v, DB_NEXT_DUP);
+                  $i++;
+               }
+               for ($j = $toread; $j < $bufext; $j++) {
+                  $x[$j] = 0;
+               }
+               @x = sort { $a <=> $b } @x;
+               for ($j = 0; $j < $bufext; $j++) {
+                  $sum += $x[$j];
+               }
+               $max = $x[$bufext - 1] if $max < $x[$bufext - 1];
             }
-            $max = $v;
             $avg = $sum / $n;
+            $cursor->c_close();
             undef $cursor;
          }
          else

@@ -70,9 +70,9 @@ Here are benchmark results for a 328Mb size slow log (previous is the version [b
     -----------------------
     original  276.5Mb  1:14
     previous   91.6Mb  2:30
-    current    14.3Mb  3:54
+    current    20.4Mb  2:30
 
-The difference between _previous_ and _current_ is in 95% calculations: in the latter one this is done on disk, so the memory usage is minimal.
+The difference between _previous_ and _current_ is in 95% calculations: in the latter one this is done in a small memory buffer, so the memory usage is minimal.
 
 Web sites
 =========
