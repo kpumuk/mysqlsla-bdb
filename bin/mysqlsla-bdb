@@ -1344,18 +1344,15 @@ sub abstract_stmt
    # --- Regex copied from mysqldumpslow
    $q =~ s/\b\d+\b/N/go;
    $q =~ s/\b0x[0-9A-Fa-f]+\b/N/go;
+   $q =~ s/\\[\\'"]//go;
    $q =~ s/''/'S'/go;
    $q =~ s/""/"S"/go;
-   $q =~ s/(\\')//go;
-   $q =~ s/(\\")//go;
-   # $q =~ s/'N'/N/go;
    $q =~ s/'[^']+'/'S'/go;
    $q =~ s/"[^"]+"/"S"/go;
    # ---
 
-   $q =~ s/^\s+//go;      # remove leading blank space
-   $q =~ s/\s{2,}/ /go;   # compact 2 or more blank spaces to 1
-   $q =~ s/\n/ /go;       # remove newlines
+   $q =~ s/^\s+|\s+$//go; # remove leading and trailing blank space
+   $q =~ s/\s+/ /go;      # compact blank spaces to a single one
    $q =~ s/`//go;         # remove graves/backticks
 
    # compact IN clauses: (N, N, N) --> (N3)
