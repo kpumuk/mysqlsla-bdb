@@ -745,7 +745,7 @@ sub parse_slow_logs
          if ( $line =~ m/^# Thread_id/ ) {
             $msl = 1;
 
-            ($cid) = $line =~ /^# Thread_id: (\d+)\s+Schema: (.*)/;
+            ($cid) = $line =~ /^# Thread_id: (\d+)\s+Schema: ([^\s]*)/;
 
             next if (exists $mf{cid} && !passes_meta_filter('cid', $cid, 'n'));
 
@@ -776,7 +776,7 @@ sub parse_slow_logs
          if($line !~ /^# Bytes_sent/)
          {
             goto CHECK_SHORT_MSL if($msl);
-            $stmt = $line;
+            $stmt = $line unless $line =~ /^#\s+InnoDB_trx_id/;
             goto READ_STATEMENTS;
          }
 
@@ -787,7 +787,7 @@ sub parse_slow_logs
             if($line !~ /^# QC_Hit/)
             {
                $short_msl = 1;
-               $stmt = $line;
+               $stmt = $line unless $line =~ /^#\s+InnoDB_trx_id/;
                goto READ_STATEMENTS;
             }
 
@@ -842,6 +842,7 @@ sub parse_slow_logs
          READ_STATEMENTS:
          while($line = <LOG>)
          {
+            next if $line =~ /^#\s+InnoDB_trx_id/;
             last if $line =~ /^#(?! administrator )/; # stop at next stmt but not administrator commands
             last if $line =~ /^\/(?![\*\/]+)/;        # stop at log header lines but not SQL comment lines
             next if $line =~ /^\s*$/;
